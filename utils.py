@@ -1,16 +1,87 @@
 import re
+import sqlite3
 
+import spacy
 import unicodedata
 from django.utils.html import strip_tags
 from nltk.corpus import stopwords
 from nltk.corpus import wordnet
+from nltk.tokenize.toktok import ToktokTokenizer
 from textblob import TextBlob
-import spacy
-import utils
+
 from contractions import CONTRACTION_MAP
 
 nlp = spacy.load('en_core_web_sm', parse=True, tag=True, entity=True)
 
+def multiprocNormalize(dflocal,sender,processName):
+    clean_reviews=[]
+    # normalize each review in the dataframe
+    for i in range(0, len(dflocal)):
+        row = dflocal.iloc[i]
+
+        normalize(str(row['reviewText']), clean_reviews)
+
+        """
+        if(len(doc0) !=len(doc)):
+            print(doc0)
+            print(doc)
+            print("-------")
+        """
+        if i % 1000 == 0:
+            print(processName + ' Processed ' + str(i) +' / '+str(len(dflocal)))
+    dflocal.insert(8, 'Clean_Review', clean_reviews)
+
+    #print(len(dflocal))
+    sender.send(dflocal)
+
+    print(processName + ' DONE' )
+
+    return dflocal
+
+
+
+def normalize(doc,normDoc):
+    tokenizer = ToktokTokenizer()
+
+    doc = strip_html_tags(doc)
+
+    # remove accented characters
+    doc = remove_accented_chars(doc)
+
+    # expand contractions
+    doc = expand_contractions(doc)
+
+    # remove extra newlines
+    doc = re.sub(r'[\r|\n|\r\n]+', '', doc)
+
+    # lemmatize text
+    doc = lemmatize_text(doc)
+
+    # remove special characters and\ or digits
+    # insert spaces between special characters to isolate them
+    special_char_pattern = re.compile(r'([{.(-)!}])')
+    doc = special_char_pattern.sub(" \\1 ", doc)
+    doc = remove_special_characters(doc, remove_digits=False)
+    # remove extra whitespaces
+    doc = re.sub(' +', ' ', doc)
+
+    # tokenize and process each token
+    tokens = tokenizer.tokenize(doc)
+    tokens1 = []
+    for token in tokens:
+        # remove stopwords
+        tokentemp = is_stopword(token)
+        if tokentemp is not '':
+            # remove repeated characters
+            tokens1.append(remove_repeated_characters(tokentemp).lower())
+
+    # bring list back into document
+    doc = ' '.join(tokens1)
+
+    # correct spelling
+    # doc=correct_spelling(doc)
+
+    normDoc.append(doc)
 
 
 def parse_text(text, patterns=None):
@@ -39,7 +110,7 @@ def parse_text(text, patterns=None):
 
 
 def strip_html_tags(text):
-    soup = utils.parse_text(text)
+    soup = parse_text(text)
     return soup
 
 
