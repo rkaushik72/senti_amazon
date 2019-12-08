@@ -12,6 +12,7 @@ from contractions import CONTRACTION_MAP
 nlp = spacy.load('en_core_web_sm', parse=True, tag=True, entity=True)
 
 
+
 def parse_text(text, patterns=None):
     """
     delete all HTML tags and entities
