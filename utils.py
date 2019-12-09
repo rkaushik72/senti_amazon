@@ -3,6 +3,7 @@ import sqlite3
 
 import spacy
 import unicodedata
+import nltk
 from django.utils.html import strip_tags
 from nltk.corpus import stopwords
 from nltk.corpus import wordnet
@@ -12,6 +13,7 @@ from textblob import TextBlob
 from contractions import CONTRACTION_MAP
 
 nlp = spacy.load('en_core_web_sm', parse=True, tag=True, entity=True)
+
 
 def multiprocNormalize(dflocal,sender,processName):
     clean_reviews=[]
@@ -178,3 +180,4 @@ def remove_repeated_characters(token):
         return token
     else:
         return repeat_pattern.sub(match_substitution, token)
+
