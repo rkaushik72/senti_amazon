@@ -190,6 +190,7 @@ def plot_model_roc_curve(clf, features, true_labels, label_encoder=None, class_n
                  label='macro-average ROC curve (area = {0:0.2f})'
                        ''.format(roc_auc["macro"]), linewidth=3)
 
+
         for i, label in enumerate(class_labels):
             plt.plot(fpr[i], tpr[i], label='ROC curve of class {0} (area = {1:0.2f})'
                                            ''.format(label, roc_auc[i]),
@@ -205,4 +206,5 @@ def plot_model_roc_curve(clf, features, true_labels, label_encoder=None, class_n
     plt.title('Receiver Operating Characteristic (ROC) Curve')
     plt.legend(loc="lower right")
     plt.show()
+
 

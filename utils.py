@@ -23,6 +23,7 @@ def multiprocNormalize(dflocal,sender,processName):
 
         normalize(str(row['reviewText']), clean_reviews)
 
+
         """
         if(len(doc0) !=len(doc)):
             print(doc0)
