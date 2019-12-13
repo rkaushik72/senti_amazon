@@ -1,157 +1,121 @@
 import re
-import sqlite3
-
+import gensim
+import numpy as np
 import spacy
-import unicodedata
-import nltk
-from django.utils.html import strip_tags
+from gensim.utils import simple_preprocess
 from nltk.corpus import stopwords
-from nltk.corpus import wordnet
-from nltk.tokenize.toktok import ToktokTokenizer
 from textblob import TextBlob
-
 from contractions import CONTRACTION_MAP
 
+# Initialize spacy 'en' model, keeping only tagger component (for efficiency)
+# python3 -m spacy download en
+nlp = spacy.load('en', disable=['parser', 'ner'])
 nlp = spacy.load('en_core_web_sm', parse=True, tag=True, entity=True)
 
+# NLTK Stop words
+stop_words = stopwords.words('english')
+#for email
+#stop_words.extend(['from', 'subject', 're', 'edu', 'use'])
+stop_words.remove('no')
+stop_words.remove('not')
 
-def multiprocNormalize(dflocal,sender,processName):
-    clean_reviews=[]
-    # normalize each review in the dataframe
-    for i in range(0, len(dflocal)):
-        row = dflocal.iloc[i]
-
-        normalize(str(row['reviewText']), clean_reviews)
+contraction_mapping = CONTRACTION_MAP
+contractions_pattern = re.compile('({})'.format('|'.join(contraction_mapping.keys())),
+                                  flags=re.IGNORECASE | re.DOTALL)
 
 
-        """
-        if(len(doc0) !=len(doc)):
-            print(doc0)
-            print(doc)
-            print("-------")
-        """
-        if i % 1000 == 0:
-            print(processName + ' Processed ' + str(i) +' / '+str(len(dflocal)))
-    dflocal.insert(8, 'Clean_Review', clean_reviews)
+def multiprocNormalize(dflocal, sender, processName):
 
-    #print(len(dflocal))
+    print(processName + ' will process ' + str(len(dflocal)))
+
+    def review_to_words(reviews):
+        for review in reviews:
+            yield (gensim.utils.simple_preprocess(str(review), deacc=False))  # deacc=True removes punctuations
+
+    def remove_stopwords(texts):
+        return [[word for word in simple_preprocess(str(doc)) if word not in stop_words] for doc in texts]
+
+    def lemmatization(texts, allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV']):
+        """https://spacy.io/api/annotation"""
+        texts_tokens = []
+        texts_str = []
+
+        i=0
+        for sent in texts:
+            i=i+1
+            doc = nlp(" ".join(sent))
+            tokens = [token.lemma_ for token in doc if token.pos_ in allowed_postags]
+            texts_tokens.append(tokens)
+            texts_str.append(' '.join([word for word in tokens]))
+            if(i%1000==0):
+                print(processName + ': lemmatized '+str(i))
+
+        return texts_tokens, texts_str
+
+    print(processName + ':1/6')
+
+    def expand_contractions(data):
+
+        def expand_contractions_sentence(sentence):
+            def expand_match(contraction):
+                match = contraction.group(0)
+                first_char = match[0]
+                expanded_contraction = contraction_mapping.get(match) \
+                    if contraction_mapping.get(match) \
+                    else contraction_mapping.get(match.lower())
+                expanded_contraction = first_char + expanded_contraction[1:]
+                return expanded_contraction
+
+            expanded_sentence = contractions_pattern.sub(expand_match, sentence)
+            return expanded_sentence
+
+        data_expanded = [expand_contractions_sentence(review) for review in data]
+        return data_expanded
+
+
+    # Convert to list
+    data = dflocal['reviewText']
+    # Remove new line characters
+    data = [re.sub('\s+', ' ', str(review)) for review in data]
+    # contractions
+    data_expanded = expand_contractions(data)
+
+    print(processName + ':2/6')
+
+    # Remove distracting single quotes
+    # data = [re.sub("\'", "", review) for review in data]
+    # tokenize each review into words
+    data_words = list(review_to_words(data_expanded))
+    # Remove Stop Words
+    data_words_nostops = remove_stopwords(data_words)
+
+    print(processName + ':3/6')
+
+    # Build the bigram and trigram models
+    bigram = gensim.models.Phrases(data_words, min_count=5, threshold=100)  # higher threshold fewer phrases.
+    trigram = gensim.models.Phrases(bigram[data_words], threshold=100)
+    # Faster way to get a sentence clubbed as a trigram/bigram
+    bigram_mod = gensim.models.phrases.Phraser(bigram)
+    trigram_mod = gensim.models.phrases.Phraser(trigram)
+    # Form Bigrams
+    data_words_bigrams = [trigram_mod[bigram_mod[doc]] for doc in data_words_nostops]
+
+    print(processName + ':4/6')
+
+    # Do lemmatization keeping only noun, adj, vb, adv
+    data_lemmatized_tokens, data_lemmatized_str = lemmatization(data_words_bigrams,
+                                                                    allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV'])
+
+    print(processName + ':5/6')
+
+    dflocal.insert(8, 'Clean_Review', data_lemmatized_str)
+    dflocal.insert(9, 'Clean_Review_Tokens', data_lemmatized_tokens)
+
     sender.send(dflocal)
 
-    print(processName + ' DONE' )
+    print(processName + ' DONE')
 
     return dflocal
-
-
-
-def normalize(doc,normDoc):
-    tokenizer = ToktokTokenizer()
-
-    doc = strip_html_tags(doc)
-
-    # remove accented characters
-    doc = remove_accented_chars(doc)
-
-    # expand contractions
-    doc = expand_contractions(doc)
-
-    # remove extra newlines
-    doc = re.sub(r'[\r|\n|\r\n]+', '', doc)
-
-    # lemmatize text
-    doc = lemmatize_text(doc)
-
-    # remove special characters and\ or digits
-    # insert spaces between special characters to isolate them
-    special_char_pattern = re.compile(r'([{.(-)!}])')
-    doc = special_char_pattern.sub(" \\1 ", doc)
-    doc = remove_special_characters(doc, remove_digits=False)
-    # remove extra whitespaces
-    doc = re.sub(' +', ' ', doc)
-
-    # tokenize and process each token
-    tokens = tokenizer.tokenize(doc)
-    tokens1 = []
-    for token in tokens:
-        # remove stopwords
-        tokentemp = is_stopword(token)
-        if tokentemp is not '':
-            # remove repeated characters
-            tokens1.append(remove_repeated_characters(tokentemp).lower())
-
-    # bring list back into document
-    doc = ' '.join(tokens1)
-
-    # correct spelling
-    # doc=correct_spelling(doc)
-
-    normDoc.append(doc)
-
-
-def parse_text(text, patterns=None):
-    """
-    delete all HTML tags and entities
-    :param text (str): given text
-    :param patterns (dict): patterns for re.sub
-    :return str: final text
-
-    usage like:
-    parse_text('<div class="super"><p>Hello&ldquo;&rdquo;!&nbsp;&nbsp;</p>&lsquo;</div>')
-    >>> Hello!
-    """
-    base_patterns = {
-        '&[rl]dquo;': '',
-        '&[rl]squo;': '',
-        '&nbsp;': ''
-    }
-
-    patterns = patterns or base_patterns
-
-    final_text = strip_tags(text)
-    for pattern, repl in patterns.items():
-        final_text = re.sub(pattern, repl, final_text)
-    return final_text
-
-
-def strip_html_tags(text):
-    soup = parse_text(text)
-    return soup
-
-
-def remove_accented_chars(text):
-    text = unicodedata.normalize('NFKD', text).encode(' ascii', 'ignore').decode(' utf-8', 'ignore')
-    return text
-
-
-def expand_contractions(sentence):
-    contraction_mapping = CONTRACTION_MAP
-    contractions_pattern = re.compile('({})'.format('|'.join(contraction_mapping.keys())),
-                                      flags=re.IGNORECASE | re.DOTALL)
-
-    def expand_match(contraction):
-        match = contraction.group(0)
-        first_char = match[0]
-        expanded_contraction = contraction_mapping.get(match) \
-            if contraction_mapping.get(match) \
-            else contraction_mapping.get(match.lower())
-        expanded_contraction = first_char + expanded_contraction[1:]
-        return expanded_contraction
-
-    expanded_sentence = contractions_pattern.sub(expand_match, sentence)
-    return expanded_sentence
-
-
-def lemmatize_text(text):
-    text = nlp(text)
-    text = ' '.join([word.lemma_ if word.lemma_ != '-PRON-' else word.text for word in text])
-    return text
-
-
-def remove_special_characters(text, remove_digits=False):
-    pattern = r'[^a-zA-z0-9\s]'
-    if not remove_digits:
-        pattern = r'[^a-zA-z\s]'
-    text = re.sub(pattern, '', text)
-    return text
 
 
 # correct spelling
@@ -159,26 +123,66 @@ def correct_spelling(text):
     return TextBlob(text).correct()
 
 
-# removing stopwords
-stopword_list = set(stopwords.words('english'))
+# topic model utils ####################################################
+
+def get_topics_terms_weights(weights, feature_names):
+    feature_names = np.array(feature_names)
+    sorted_indices = np.array([list(row[::-1])
+                               for row
+                               in np.argsort(np.abs(weights))])
+    sorted_weights = np.array([list(wt[index])
+                               for wt, index
+                               in zip(weights, sorted_indices)])
+    sorted_terms = np.array([list(feature_names[row])
+                             for row
+                             in sorted_indices])
+
+    topics = [np.vstack((terms.T,
+                         term_weights.T)).T
+              for terms, term_weights
+              in zip(sorted_terms, sorted_weights)]
+
+    return topics
 
 
-def is_stopword(token):
-    token = token.strip()
-    if token not in stopword_list:
-        return token
-    else:
-        return ''
+def print_topics_gensim(topic_model, total_topics=1,
+                        weight_threshold=0.0001,
+                        display_weights=False,
+                        num_terms=None):
+    for index in range(total_topics):
+        topic = topic_model.show_topic(index)
+        topic = [(word, round(wt, 2))
+                 for word, wt in topic
+                 if abs(wt) >= weight_threshold]
+        if display_weights:
+            print('Topic #' + str(index + 1) + ' with weights')
+            print(topic[:num_terms] if num_terms else topic)
+        else:
+            print('Topic #' + str(index + 1) + ' without weights')
+            tw = [term for term, wt in topic]
+            print(tw[:num_terms] if num_terms else tw)
+        print
 
 
-# removing repeated words
-repeat_pattern = re.compile(r'(\w*)(\w)\2(\w*)')
-match_substitution = r'\1\2\3'
+def print_topics_udf(topics, total_topics=1,
+                     weight_threshold=0.0001,
+                     display_weights=False,
+                     num_terms=None):
+    for index in range(total_topics):
+        topic = topics[index]
+        topic = [(term, float(wt))
+                 for term, wt in topic]
+        topic = [(word, round(wt, 2))
+                 for word, wt in topic
+                 if abs(wt) >= weight_threshold]
 
+        if display_weights:
+            print('Topic #' + str(index + 1) + ' with weights')
+            print(topic[:num_terms] if num_terms else topic)
+        else:
+            print('Topic #' + str(index + 1) + ' without weights')
+            tw = [term for term, wt in topic]
+            print(tw[:num_terms] if num_terms else tw)
+        print
 
-def remove_repeated_characters(token):
-    if wordnet.synsets(token):
-        return token
-    else:
-        return repeat_pattern.sub(match_substitution, token)
 
