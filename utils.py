@@ -21,6 +21,11 @@ stop_words = stopwords.words('english')
 #stop_words.extend(['from', 'subject', 're', 'edu', 'use'])
 stop_words.remove('no')
 stop_words.remove('not')
+#add the word phone so it is removed
+stop_words.append('phone')
+stop_words.append('phones')
+stop_words.append('cellphone')
+stop_words.append('cellphones')
 
 contraction_mapping = CONTRACTION_MAP
 contractions_pattern = re.compile('({})'.format('|'.join(contraction_mapping.keys())),
@@ -112,10 +117,11 @@ def multiprocNormalize(dflocal, sender, processName):
     data_lemmatized_tokens, data_lemmatized_str = lemmatization(data_words_bigrams,
                                                                     allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV'])
 
+
     print(processName + ':5/6')
 
-    dflocal.insert(8, 'Clean_Review', data_lemmatized_str)
-    dflocal.insert(9, 'Clean_Review_Tokens', data_lemmatized_tokens)
+    dflocal['Clean_Review'] =data_lemmatized_str
+    dflocal['Clean_Review_Tokens']=data_lemmatized_tokens
 
     sender.send(dflocal)
 
