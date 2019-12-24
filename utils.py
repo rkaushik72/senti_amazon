@@ -9,6 +9,44 @@ from contractions import CONTRACTION_MAP
 from nltk.corpus import sentiwordnet as swn
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
+import sys
+import numpy as np
+RNG = 10
+np.random.seed(RNG)
+import pandas as pd
+
+from sklearn.utils import resample
+from sklearn.datasets import make_classification
+from sklearn.preprocessing import LabelEncoder
+from sklearn.decomposition import PCA
+
+from imblearn.under_sampling import RandomUnderSampler as UnderSampler
+from imblearn.over_sampling import RandomOverSampler as OverSampler
+
+
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+rcParams['pdf.fonttype'] = 42 ## Output Type 3 (Type3) or Type 42 (TrueType)
+rcParams['font.sans-serif'] = 'Arial'
+import seaborn as sns
+sns.set_style("whitegrid")
+sns.set_context('talk')
+
+
+COLORS10 = [
+'#1f77b4',
+'#ff7f0e',
+'#2ca02c',
+'#d62728',
+'#9467bd',
+'#8c564b',
+'#e377c2',
+'#7f7f7f',
+'#bcbd22',
+'#17becf',
+]
+
+
 
 # Initialize spacy 'en' model, keeping only tagger component (for efficiency)
 # python3 -m spacy download en
@@ -278,3 +316,17 @@ def analyze_sentiment_vader_lexicon(review,threshold):
         else 0
 
     return final_sentiment
+
+
+def pca_plot(X, y):
+    pca = PCA(n_components=2)
+    X_pc = pca.fit_transform(X)
+
+    fig, ax = plt.subplots()
+    mask = y == 0
+    ax.scatter(X_pc[mask, 0], X_pc[mask, 1], color=COLORS10[0], label='Class 0', alpha=0.5, s=20)
+    ax.scatter(X_pc[~mask, 0], X_pc[~mask, 1], color=COLORS10[1], label='Class 1', alpha=0.5, s=20)
+    ax.set_xlabel('PC1')
+    ax.set_ylabel('PC2')
+    ax.legend(loc='best')
+    return fig
