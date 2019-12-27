@@ -1,27 +1,22 @@
 import re
+
 import gensim
+import nltk
 import numpy as np
 import spacy
-from gensim.utils import simple_preprocess
-from nltk.corpus import stopwords
-from textblob import TextBlob
-from contractions import CONTRACTION_MAP
 from nltk.corpus import sentiwordnet as swn
+from nltk.corpus import stopwords
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import nltk
-import sys
-import numpy as np
+from textblob import TextBlob
+
+from contractions import CONTRACTION_MAP
+
 RNG = 10
 np.random.seed(RNG)
-import pandas as pd
 
-from sklearn.utils import resample
-from sklearn.datasets import make_classification
-from sklearn.preprocessing import LabelEncoder
 from sklearn.decomposition import PCA
 
-from imblearn.under_sampling import RandomUnderSampler as UnderSampler
-from imblearn.over_sampling import RandomOverSampler as OverSampler
+from gensim.utils import simple_preprocess
 
 
 import matplotlib.pyplot as plt
@@ -31,6 +26,8 @@ rcParams['font.sans-serif'] = 'Arial'
 import seaborn as sns
 sns.set_style("whitegrid")
 sns.set_context('talk')
+
+import pickle
 
 
 COLORS10 = [
@@ -54,54 +51,43 @@ nlp = spacy.load('en', disable=['parser', 'ner'])
 nlp = spacy.load('en_core_web_sm', parse=True, tag=True, entity=True)
 
 # NLTK Stop words
-stop_words = stopwords.words('english')
-#for email
-#stop_words.extend(['from', 'subject', 're', 'edu', 'use'])
-stop_words.remove('no')
-stop_words.remove('not')
-#add the word phone so it is removed
-stop_words.append('phone')
-stop_words.append('phones')
-stop_words.append('cellphone')
-stop_words.append('cellphones')
+stop_words = set(stopwords.words('english'))
+
+addtl=['from', 'subject', 're', 'edu', 'use', 'would', 'say', 'could',
+                   'be', 'know', 'good', 'go', 'get', 'do', 'done', 'try', 'many', 'some'
+                   , 'thank', 'think', 'see', 'rather', 'lot',
+                   'make', 'want', 'seem', 'run', 'need', 'even',
+                   'right', 'line', 'even', 'also', 'may', 'take', 'come','phone','phones','cellphone','cellphones']
+stop_words_updated=stop_words.union(addtl)
+
+not_stopwords = {'no', 'not', 'ne'}
+final_stop_words = set([word for word in stop_words_updated if word not in not_stopwords])
+
+#print(final_stop_words)
 
 contraction_mapping = CONTRACTION_MAP
 contractions_pattern = re.compile('({})'.format('|'.join(contraction_mapping.keys())),
                                   flags=re.IGNORECASE | re.DOTALL)
 
+FILENAME_PREFIX= './data/amazon_reviews_'
 
 nltk.downloader.download('vader_lexicon')
+
+
+def writeToDisk(object,name):
+    with open(FILENAME_PREFIX+name+'.pickle', "wb") as f:
+        pickle.dump(object, f)
+
+def readFromDisk(name):
+    f=open(FILENAME_PREFIX+name+'.pickle', "rb")
+    return pickle.load(f)
+
 
 
 def multiprocNormalize(dflocal, sender, processName):
 
     print(processName + ' will process ' + str(len(dflocal)))
 
-    def review_to_words(reviews):
-        for review in reviews:
-            yield (gensim.utils.simple_preprocess(str(review), deacc=False))  # deacc=True removes punctuations
-
-    def remove_stopwords(texts):
-        return [[word for word in simple_preprocess(str(doc)) if word not in stop_words] for doc in texts]
-
-    def lemmatization(texts, allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV']):
-        """https://spacy.io/api/annotation"""
-        texts_tokens = []
-        texts_str = []
-
-        i=0
-        for sent in texts:
-            i=i+1
-            doc = nlp(" ".join(sent))
-            tokens = [token.lemma_ for token in doc if token.pos_ in allowed_postags]
-            texts_tokens.append(tokens)
-            texts_str.append(' '.join([word for word in tokens]))
-            if(i%1000==0):
-                print(processName + ': lemmatized '+str(i))
-
-        return texts_tokens, texts_str
-
-    print(processName + ':1/6')
 
     def expand_contractions(data):
 
@@ -121,49 +107,59 @@ def multiprocNormalize(dflocal, sender, processName):
         data_expanded = [expand_contractions_sentence(review) for review in data]
         return data_expanded
 
+    def sent_to_words(sentences):
+        for sent in sentences:
+            sent = re.sub('\S*@\S*\s?', '', sent)  # remove emails
+            sent = re.sub('\s+', ' ', sent)  # remove newline chars
+            sent = re.sub("\'", "", sent)  # remove single quotes
+            yield (gensim.utils.simple_preprocess(str(sent), deacc=True))  # deacc=True removes punctuations
 
     # Convert to list
-    data = dflocal['reviewText']
-    # Remove new line characters
-    data = [re.sub('\s+', ' ', str(review)) for review in data]
-    # contractions
-    data_expanded = expand_contractions(data)
+    data = dflocal['reviewText'].values.tolist()
 
-    print(processName + ':2/6')
-
-    # Remove distracting single quotes
-    # data = [re.sub("\'", "", review) for review in data]
-    # tokenize each review into words
-    data_words = list(review_to_words(data_expanded))
-    # Remove Stop Words
-    data_words_nostops = remove_stopwords(data_words)
-
-    print(processName + ':3/6')
+    #tokenize and clean
+    data_words = list(sent_to_words(data))
 
     # Build the bigram and trigram models
     bigram = gensim.models.Phrases(data_words, min_count=5, threshold=100)  # higher threshold fewer phrases.
     trigram = gensim.models.Phrases(bigram[data_words], threshold=100)
-    # Faster way to get a sentence clubbed as a trigram/bigram
     bigram_mod = gensim.models.phrases.Phraser(bigram)
     trigram_mod = gensim.models.phrases.Phraser(trigram)
-    # Form Bigrams
-    data_words_bigrams = [trigram_mod[bigram_mod[doc]] for doc in data_words_nostops]
 
-    print(processName + ':4/6')
+    # !python3 -m spacy download en  # run in terminal once
+    def process_words(texts, stop_words, allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV']):
 
-    # Do lemmatization keeping only noun, adj, vb, adv
-    data_lemmatized_tokens, data_lemmatized_str = lemmatization(data_words_bigrams,
-                                                                    allowed_postags=['NOUN', 'ADJ', 'VERB', 'ADV'])
+        """Remove Stopwords, Form Bigrams, Trigrams and Lemmatization"""
+        texts = [[word for word in simple_preprocess(str(doc)) if word not in stop_words] for doc in texts]
+        texts = [bigram_mod[doc] for doc in texts]
+        texts = [trigram_mod[bigram_mod[doc]] for doc in texts]
+        texts_out = []
+        texts_out_str = []
+        nlp = spacy.load('en', disable=['parser', 'ner'])
+        i = 0
+        for sent in texts:
+            doc = nlp(" ".join(sent))
+            texts_out.append([token.lemma_ for token in doc if token.pos_ in allowed_postags])
+            i = i + 1
+            if (i % 5000 == 0):
+                print(processName + ': lemmatized ' + str(i))
+        # remove stopwords once more after lemmatization
+        texts_out = [[word for word in simple_preprocess(str(doc)) if word not in stop_words] for doc in texts_out]
+        for doc in texts_out:
+            texts_out_str.append(" ".join([word for word in doc]))
+        return texts_out,texts_out_str
+
+    data_ready_tokens,data_ready_str = process_words(data_words,final_stop_words,allowed_postags=['NOUN', 'ADJ', 'ADV'])  # processed Text Data!
 
 
-    print(processName + ':5/6')
+    dflocal['Clean_Review'] =data_ready_str
+    dflocal['Clean_Review_Tokens']=data_ready_tokens
 
-    dflocal['Clean_Review'] =data_lemmatized_str
-    dflocal['Clean_Review_Tokens']=data_lemmatized_tokens
+
+    # filter rows out that have less than 10 word tokens
+    dflocal = dflocal[dflocal['Clean_Review_Tokens'].apply(lambda x: len(x) >= 10)]
 
     sender.send(dflocal)
-
-    print(processName + ' DONE')
 
     return dflocal
 
