@@ -14,8 +14,9 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.base import clone
 from sklearn.preprocessing import label_binarize
 from scipy import interp
-from sklearn.metrics import roc_curve, auc
-
+from sklearn.metrics import roc_curve, auc, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def get_metrics(true_labels, predicted_labels):
     print('Accuracy:', np.round(
@@ -62,6 +63,21 @@ def display_confusion_matrix(true_labels, predicted_labels, classes=[1, 0]):
                                                 labels=level_labels))
     print(cm_frame)
 
+def display_confusion_matrix_graphic(true_labels, predicted_labels):
+
+    cf_matrix = confusion_matrix(true_labels, predicted_labels)
+
+    categories = ['+ve senti', '-ve senti']
+    group_names = ['True Neg', 'False Pos', 'False Neg', 'True Pos']
+    group_counts = ["{0:0.0f}".format(value) for value in
+                    cf_matrix.flatten()]
+    group_percentages = ["{0:.2%}".format(value) for value in
+                         cf_matrix.flatten()/np.sum(cf_matrix)]
+    labels = [f"{v1}\n{v2}\n{v3}" for v1, v2, v3 in
+              zip(group_names,group_counts,group_percentages)]
+    labels = np.asarray(labels).reshape(2,2)
+    sns.heatmap(cf_matrix, annot=labels, fmt='', cmap='Blues',xticklabels=categories,yticklabels=categories)
+
 
 def display_classification_report(true_labels, predicted_labels, classes=[1, 0]):
     report = metrics.classification_report(y_true=true_labels,
@@ -80,8 +96,7 @@ def display_model_performance_metrics(true_labels, predicted_labels, classes=[1,
                                   classes=classes)
     print('\nPrediction Confusion Matrix:')
     print('-' * 30)
-    display_confusion_matrix(true_labels=true_labels, predicted_labels=predicted_labels,
-                             classes=classes)
+    display_confusion_matrix_graphic(true_labels=true_labels, predicted_labels=predicted_labels)
 
 
 def plot_model_decision_surface(clf, train_features, train_labels,

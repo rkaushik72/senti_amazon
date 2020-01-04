@@ -8,8 +8,9 @@ from nltk.corpus import sentiwordnet as swn
 from nltk.corpus import stopwords
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob import TextBlob
-
 from contractions import CONTRACTION_MAP
+import numpy as np
+import seaborn as sns
 
 RNG = 10
 np.random.seed(RNG)
