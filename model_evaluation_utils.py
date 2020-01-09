@@ -14,7 +14,7 @@ from scipy import interp
 from sklearn import metrics
 from sklearn.base import clone
 from sklearn.metrics import roc_curve, auc, confusion_matrix
-from sklearn.model_selection import learning_curve
+from sklearn.model_selection import learning_curve, validation_curve
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import label_binarize
 
@@ -231,7 +231,7 @@ def learningCurve(X, Y, model, cv, train_sizes):
     plt.xlabel("Training examples")
     plt.ylabel("Score")
 
-    train_sizes, train_scores, test_scores = learning_curve(model, X, Y, cv=cv, n_jobs=4, train_sizes=train_sizes)
+    train_sizes, train_scores, test_scores = learning_curve(model, X, Y, cv=cv, n_jobs=-1, train_sizes=train_sizes)
 
     train_scores_mean = np.mean(train_scores, axis=1)
     train_scores_std = np.std(train_scores, axis=1)
@@ -248,3 +248,37 @@ def learningCurve(X, Y, model, cv, train_sizes):
 
     plt.legend(loc="best")
     return plt
+
+def validationCurve(classifier,train_features,train_sentiments,param_name,param_range,NWORKERS,title):
+    train_scores, test_scores = validation_curve(
+        classifier,
+        X=train_features, y=train_sentiments,
+        param_name=param_name,
+        param_range=param_range,
+        cv=3,
+        n_jobs=NWORKERS
+    )
+
+    # Calculate mean and standard deviation for training set scores
+    train_mean = np.mean(train_scores, axis=1)
+    train_std = np.std(train_scores, axis=1)
+
+    # Calculate mean and standard deviation for test set scores
+    test_mean = np.mean(test_scores, axis=1)
+    test_std = np.std(test_scores, axis=1)
+
+    # Plot mean accuracy scores for training and test sets
+    plt.plot(param_range, train_mean, label="Training score", color="black")
+    plt.plot(param_range, test_mean, label="Cross-validation score", color="dimgrey")
+
+    # Plot accurancy bands for training and test sets
+    plt.fill_between(param_range, train_mean - train_std, train_mean + train_std, color="gray")
+    plt.fill_between(param_range, test_mean - test_std, test_mean + test_std, color="gainsboro")
+
+    # Create plot
+    plt.title(title)
+    plt.tight_layout()
+    plt.legend(loc="best")
+    plt.show()
+
+    return train_scores,test_scores
