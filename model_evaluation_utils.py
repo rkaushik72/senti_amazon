@@ -18,6 +18,7 @@ from sklearn.model_selection import learning_curve, validation_curve
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import label_binarize
 
+NWORKERS=16
 
 def get_metrics(true_labels, predicted_labels):
     print('Accuracy:', np.round(
@@ -231,7 +232,7 @@ def learningCurve(X, Y, model, cv, train_sizes):
     plt.xlabel("Training examples")
     plt.ylabel("Score")
 
-    train_sizes, train_scores, test_scores = learning_curve(model, X, Y, cv=cv, n_jobs=-1, train_sizes=train_sizes)
+    train_sizes, train_scores, test_scores = learning_curve(model, X, Y, cv=cv, n_jobs=NWORKERS, train_sizes=train_sizes)
 
     train_scores_mean = np.mean(train_scores, axis=1)
     train_scores_std = np.std(train_scores, axis=1)
